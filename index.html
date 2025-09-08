@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Semáforo</title>
+  </head>
+  <body>
+    <script src="https://app.protobject.com/framework/p.js"></script>
+    <script src="config.js"></script>
+
+    <h1 style="font-family:sans-serif; text-align:center; margin:16px 0">
+      Semáforo inteligente (Aruco 1/200/100)
+    </h1>
+    <p id="modeLabel" style="font-family:sans-serif; text-align:center; margin:0 20px;">
+      Ciclo actual: A (8-2-8)
+    </p>
+    <p id="timerLabel" style="font-family:sans-serif; text-align:center; font-size:26px; margin:8px 0 0;">
+      Tiempo restante: --
+    </p>
+
+    <script>
+      // ===== LÁMPARAS =====
+      const baseLeft = 80, baseTop = 110, lampSize = 120, gap = 22;
+
+      const red = new Protobject.Lamp({ width: lampSize+"px", height: lampSize+"px", top: baseTop+"px", left: baseLeft+"px", borderRadius: "50%", zIndex:5 });
+      const yellow = new Protobject.Lamp({ width: lampSize+"px", height: lampSize+"px", top: (baseTop+lampSize+gap)+"px", left: baseLeft+"px", borderRadius: "50%", zIndex:5 });
+      const green = new Protobject.Lamp({ width: lampSize+"px", height: lampSize+"px", top: (baseTop+2*(lampSize+gap))+"px", left: baseLeft+"px", borderRadius: "50%", zIndex:5 });
+
+      const offAll   = () => { red.setColor({r:0,g:0,b:0}); yellow.setColor({r:0,g:0,b:0}); green.setColor({r:0,g:0,b:0}); };
+      const onRed    = () => red.setColor({r:255,g:0,b:0});
+      const onYellow = () => yellow.setColor({r:255,g:255,b:0});
+      const onGreen  = () => green.setColor({r:0,g:255,b:0});
+
+      // ===== CICLOS =====
+      const cycles = {
+        A: { green: 8, yellow: 2, red: 8, label: "A (8-2-8)" },
+        B: { green: 5, yellow: 2, red: 5, label: "B (5-2-5)" },
+      };
+
+      let currentCycleKey = "A";
+      let runToken = 0;
+      let isPedestrian = false;
+      const modeLabel = document.getElementById("modeLabel");
+      const timerLabel = document.getElementById("timerLabel");
+
+      function updateLabel(){
+        modeLabel.textContent = isPedestrian ? "Modo peatón (rojo)" : "Ciclo actual: " + cycles[currentCycleKey].label;
+      }
+      const sleep = (ms) => new Promise(r=>setTimeout(r,ms));
+
+      async function countdown(seconds, token){
+        for (let i=seconds; i>0; i--){
+          if (token !== runToken) return;
+          timerLabel.textContent = `Tiempo restante: ${i} s`;
+          await sleep(1000);
+        }
+      }
+
+      async function startCycle(){
+        isPedestrian = false; updateLabel();
+        const myToken = ++runToken;
+        const p = cycles[currentCycleKey];
+
+        while (myToken === runToken && !isPedestrian){
+          offAll(); onGreen();  await countdown(p.green,  myToken); if (myToken!==runToken||isPedestrian) break;
+          offAll(); onYellow(); await countdown(p.yellow, myToken); if (myToken!==runToken||isPedestrian) break;
+          offAll(); onRed();    await countdown(p.red,    myToken);
+        }
+      }
+
+      async function startPedestrian(durationSec=10){
+        isPedestrian = true; updateLabel();
+        const myToken = ++runToken;
+        offAll(); onRed();
+        await countdown(durationSec, myToken);
+        if (myToken === runToken){ isPedestrian = false; updateLabel(); startCycle(); }
+      }
+
+      // ===== RECEPCIÓN DESDE aruco.html =====
+      // Tomamos order[0] (el "de arriba"):
+      // 1 -> ciclo A ; 200 -> ciclo B ; 100 -> peatón (10s)
+      function handleOrder(order){
+        if (!Array.isArray(order) || !order.length) return;
+        const top = order[0];
+        if (top === 1 && currentCycleKey!=="A"){ currentCycleKey="A"; startCycle(); }
+        else if (top === 200 && currentCycleKey!=="B"){ currentCycleKey="B"; startCycle(); }
+        else if (top === 100 && !isPedestrian){ startPedestrian(10); }
+      }
+
+      Protobject.Core.onReceived((order) => { handleOrder(order); });
+
+      // Arranca ciclo A
+      startCycle();
+    </script>
+
+    <style>
+      #ProtobjectPlusButton { width: 80px !important; }
+      #ProtobjectPlusButton::after { content: " Connect"; }
+      body::before {
+        content: "";
+        position: absolute;
+        left: 60px; top: 90px;
+        width: 160px; height: 404px; /* 3*120 + 2*22 */
+        background: #222; border-radius: 22px; opacity: .18;
+      }
+    </style>
+  </body>
+</html>
