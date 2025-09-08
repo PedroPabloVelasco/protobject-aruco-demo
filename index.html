@@ -1,109 +1,251 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Semáforo</title>
-  </head>
-  <body>
-    <script src="https://app.protobject.com/framework/p.js"></script>
-    <script src="config.js"></script>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Semáforos coordinados + ArUco</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Ubuntu,sans-serif;margin:0;background:#0f1115;color:#e5e7eb}
+  h1{margin:12px 8px 6px;text-align:center;font-size:clamp(18px,3.5vw,26px)}
+  .subtitle{margin:0 8px 10px;text-align:center;color:#a3a3a3;font-size:clamp(12px,2.2vw,14px)}
 
-    <h1 style="font-family:sans-serif; text-align:center; margin:16px 0">
-      Semáforo inteligente (Aruco 1/200/100)
-    </h1>
-    <p id="modeLabel" style="font-family:sans-serif; text-align:center; margin:0 20px;">
-      Ciclo actual: A (8-2-8)
-    </p>
-    <p id="timerLabel" style="font-family:sans-serif; text-align:center; font-size:26px; margin:8px 0 0;">
-      Tiempo restante: --
-    </p>
+  .stage{position:relative;max-width:960px;height:70vh;margin:0 auto 16px;background:#151822;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);overflow:hidden}
 
-    <script>
-      // ===== LÁMPARAS =====
-      const baseLeft = 80, baseTop = 110, lampSize = 120, gap = 22;
+  /* Calles */
+  .road.ns{position:absolute;left:50%;top:0;transform:translateX(-50%);width:min(20vw,180px);height:100%;background:#394150}
+  .road.ew{position:absolute;top:50%;left:0;transform:translateY(-50%);height:min(18vh,140px);width:100%;background:#394150}
+  .stopline{position:absolute;background:#c24141}
+  .stopline.ns{width:100%;height:6px;top:50%}
+  .stopline.ew{height:100%;width:6px;left:50%}
 
-      const red = new Protobject.Lamp({ width: lampSize+"px", height: lampSize+"px", top: baseTop+"px", left: baseLeft+"px", borderRadius: "50%", zIndex:5 });
-      const yellow = new Protobject.Lamp({ width: lampSize+"px", height: lampSize+"px", top: (baseTop+lampSize+gap)+"px", left: baseLeft+"px", borderRadius: "50%", zIndex:5 });
-      const green = new Protobject.Lamp({ width: lampSize+"px", height: lampSize+"px", top: (baseTop+2*(lampSize+gap))+"px", left: baseLeft+"px", borderRadius: "50%", zIndex:5 });
+  /* Semáforos */
+  .tl{position:absolute;width:68px;height:188px;background:#1f2430;border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 22px rgba(0,0,0,.4)}
+  .tl .lamp{flex:1;border-radius:50%;background:#0a0c11;opacity:.25}
+  .on{opacity:1!important}
+  /* REEMPLAZA tus colores por estos (más vivos) */
+  .r{ background:#ff3b30; color:#ff3b30; }   /* rojo */
+  .y{ background:#ffcc00; color:#ffcc00; }   /* amarillo/ámbar */
+  .g{ background:#34c759; color:#34c759; }   /* verde */
+  #tl-ns{left:calc(50% + min(12vw,110px));top:calc(50% - 100px)}
+  #tl-ew{top:calc(50% + min(11vh,85px));left:50%;transform:translateX(-50%) rotate(90deg)}
+  /* AJUSTA la base y el encendido */
+  .tl .lamp{ background:#0a0c11; opacity:.18; }   /* antes .25 */
+  .tl .lamp.on{
+    opacity:1;
+    box-shadow:
+      0 0 0 3px rgba(0,0,0,.35) inset,
+      0 0 18px 6px currentColor,
+      0 0 60px 18px currentColor;
+  }
 
-      const offAll   = () => { red.setColor({r:0,g:0,b:0}); yellow.setColor({r:0,g:0,b:0}); green.setColor({r:0,g:0,b:0}); };
-      const onRed    = () => red.setColor({r:255,g:0,b:0});
-      const onYellow = () => yellow.setColor({r:255,g:255,b:0});
-      const onGreen  = () => green.setColor({r:0,g:255,b:0});
+  /* Estado grande */
+  .banner{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(0,0,0,.5);padding:8px 12px;border-radius:10px;font-size:14px;backdrop-filter:blur(4px)}
+  .info{position:absolute;left:12px;bottom:12px;background:rgba(0,0,0,.45);padding:8px 12px;border-radius:10px;font-size:13px}
 
-      // ===== CICLOS =====
-      const cycles = {
-        A: { green: 8, yellow: 2, red: 8, label: "A (8-2-8)" },
-        B: { green: 5, yellow: 2, red: 5, label: "B (5-2-5)" },
-      };
+  /* Overlay “Pasando auto” */
+  .passing{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    background:rgba(0,0,0,.6);padding:14px 18px;border-radius:12px;
+    font-weight:700;letter-spacing:.3px;display:none;box-shadow:0 12px 32px rgba(0,0,0,.45)
+  }
+  .show{display:block}
+  .dir{color:#93c5fd}
+  .count{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+  <h1>Semáforos coordinados (Aruco 1/200/100)</h1>
+  <p class="subtitle">1 = fuerza NS 6&nbsp;s • 200 = fuerza EW 6&nbsp;s (solo si no está bloqueado) • 100 = peatón (ambos rojo 6&nbsp;s)</p>
 
-      let currentCycleKey = "A";
-      let runToken = 0;
-      let isPedestrian = false;
-      const modeLabel = document.getElementById("modeLabel");
-      const timerLabel = document.getElementById("timerLabel");
+  <div class="stage">
+    <div class="road ns"></div>
+    <div class="road ew"></div>
+    <div class="stopline ns"></div>
+    <div class="stopline ew"></div>
 
-      function updateLabel(){
-        modeLabel.textContent = isPedestrian ? "Modo peatón (rojo)" : "Ciclo actual: " + cycles[currentCycleKey].label;
-      }
-      const sleep = (ms) => new Promise(r=>setTimeout(r,ms));
+    <!-- Semáforo NS -->
+    <div class="tl" id="tl-ns">
+      <div id="ns-r" class="lamp r on"></div>
+      <div id="ns-y" class="lamp y"></div>
+      <div id="ns-g" class="lamp g"></div>
+    </div>
+    <!-- Semáforo EW -->
+    <div class="tl" id="tl-ew">
+      <div id="ew-r" class="lamp r on"></div>
+      <div id="ew-y" class="lamp y"></div>
+      <div id="ew-g" class="lamp g"></div>
+    </div>
 
-      async function countdown(seconds, token){
-        for (let i=seconds; i>0; i--){
-          if (token !== runToken) return;
-          timerLabel.textContent = `Tiempo restante: ${i} s`;
-          await sleep(1000);
+    <div class="banner" id="banner">Ciclo normal</div>
+    <div class="passing" id="passing">PASANDO AUTO <span class="dir">NS</span> — <span class="count" id="passCount">6</span>s</div>
+    <div class="info" id="info">Fase: — | Bloqueado: no</div>
+  </div>
+
+  <script src="https://app.protobject.com/framework/p.js"></script>
+  <script src="config.js"></script>
+  <script>
+    /* ====== Tiempos ====== */
+    const GREEN_DEFAULT = 8;   // s ciclo normal
+    const YELLOW_TIME   = 2;   // s
+    const ALL_RED_TIME  = 1;   // s
+    const FORCE_TIME    = 6;   // s de bloqueo por aruco 1/200
+    const PED_TIME      = 6;   // s peatón
+
+    /* ====== Util ====== */
+    const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+    const now   = ()=>performance.now();
+
+    /* ====== UI refs ====== */
+    const nsR = document.getElementById('ns-r');
+    const nsY = document.getElementById('ns-y');
+    const nsG = document.getElementById('ns-g');
+    const ewR = document.getElementById('ew-r');
+    const ewY = document.getElementById('ew-y');
+    const ewG = document.getElementById('ew-g');
+    const banner = document.getElementById('banner');
+    const passingBox = document.getElementById('passing');
+    const passCount = document.getElementById('passCount');
+    const info = document.getElementById('info');
+    const passDirSpan = passingBox.querySelector('.dir');
+
+    function setNS(color){
+      nsR.classList.remove('on'); nsY.classList.remove('on'); nsG.classList.remove('on');
+      if(color==='red') nsR.classList.add('on');
+      if(color==='yellow') nsY.classList.add('on');
+      if(color==='green') nsG.classList.add('on');
+    }
+    function setEW(color){
+      ewR.classList.remove('on'); ewY.classList.remove('on'); ewG.classList.remove('on');
+      if(color==='red') ewR.classList.add('on');
+      if(color==='yellow') ewY.classList.add('on');
+      if(color==='green') ewG.classList.add('on');
+    }
+    function setBanner(txt){ banner.textContent = txt; }
+    function setInfo(){ info.textContent = `Fase: ${phase} | Bloqueado: ${blockedUntil>now() ? 'sí' : 'no'}`; }
+
+    /* ====== Estado ====== */
+    // phase: 'NS_GREEN' | 'EW_GREEN' | 'YELLOW_NS' | 'YELLOW_EW' | 'ALL_RED' | 'PEDESTRIAN'
+    let phase = 'ALL_RED';
+    let token = 0;                // cancelar secuencias en curso
+    let blockedUntil = 0;         // ms (performance.now) — mientras > now() está bloqueado (pasando auto)
+    let passTimerId = null;       // interval para contador overlay
+
+    // Inicial: ALL_RED breve y arrancamos ciclo normal con NS
+    (async function init(){
+      await toAllRed(500);
+      cycleNormal('NS'); // arranca NS por defecto
+    })();
+
+    /* ====== Overlays “Pasando auto …” ====== */
+    function showPassing(dir, seconds){
+      passDirSpan.textContent = dir;
+      passingBox.classList.add('show');
+      const tStart = now();
+      if (passTimerId) clearInterval(passTimerId);
+      passTimerId = setInterval(()=>{
+        const left = Math.max(0, seconds - ((now()-tStart)/1000));
+        passCount.textContent = Math.ceil(left);
+        if (left<=0){
+          clearInterval(passTimerId);
+          passTimerId = null;
+          passingBox.classList.remove('show');
         }
+      }, 200);
+    }
+    function hidePassing(){
+      if (passTimerId) clearInterval(passTimerId);
+      passTimerId = null;
+      passingBox.classList.remove('show');
+    }
+
+    /* ====== Transiciones atómicas ====== */
+    async function toAllRed(ms=ALL_RED_TIME*1000){
+      token++; const my=token;
+      phase='ALL_RED'; setNS('red'); setEW('red'); setBanner('Todo rojo'); setInfo();
+      await sleep(ms);
+      if (my!==token) return;
+    }
+    async function toYellow(from){ // from: 'NS'|'EW'
+      token++; const my=token;
+      phase = from==='NS' ? 'YELLOW_NS' : 'YELLOW_EW';
+      if (from==='NS'){ setNS('yellow'); setEW('red'); setBanner('NS Amarillo'); }
+      else { setEW('yellow'); setNS('red'); setBanner('EW Amarillo'); }
+      setInfo();
+      await sleep(YELLOW_TIME*1000);
+      if (my!==token) return;
+      await toAllRed();
+    }
+
+    /* ====== Ciclo normal ====== */
+    async function cycleNormal(start='NS'){
+      token++; const my=token;
+      while (my===token){
+        // NS verde
+        phase='NS_GREEN'; setNS('green'); setEW('red'); setBanner('Ciclo normal: NS Verde'); setInfo();
+        const nsEnd = now() + GREEN_DEFAULT*1000;
+        while (now()<nsEnd && my===token && now()>=blockedUntil){ await sleep(150); }
+        if (my!==token) break;
+        if (now()<blockedUntil) continue; // si se metió un bloqueo, re-evalúa
+        await toYellow('NS'); if (my!==token) break;
+
+        // EW verde
+        phase='EW_GREEN'; setEW('green'); setNS('red'); setBanner('Ciclo normal: EW Verde'); setInfo();
+        const ewEnd = now() + GREEN_DEFAULT*1000;
+        while (now()<ewEnd && my===token && now()>=blockedUntil){ await sleep(150); }
+        if (my!==token) break;
+        if (now()<blockedUntil) continue;
+        await toYellow('EW'); if (my!==token) break;
       }
+    }
 
-      async function startCycle(){
-        isPedestrian = false; updateLabel();
-        const myToken = ++runToken;
-        const p = cycles[currentCycleKey];
+    /* ====== Fuerzas por ArUco ====== */
+    async function forceGreen(dir){ // dir: 'NS'|'EW'
+      // Si está bloqueado (auto pasando), ignorar (excepto peatón que se maneja aparte)
+      if (now()<blockedUntil) return; 
 
-        while (myToken === runToken && !isPedestrian){
-          offAll(); onGreen();  await countdown(p.green,  myToken); if (myToken!==runToken||isPedestrian) break;
-          offAll(); onYellow(); await countdown(p.yellow, myToken); if (myToken!==runToken||isPedestrian) break;
-          offAll(); onRed();    await countdown(p.red,    myToken);
-        }
-      }
+      token++; const my=token; // cancela lo que haya (incluye ciclo normal)
+      hidePassing();
 
-      async function startPedestrian(durationSec=10){
-        isPedestrian = true; updateLabel();
-        const myToken = ++runToken;
-        offAll(); onRed();
-        await countdown(durationSec, myToken);
-        if (myToken === runToken){ isPedestrian = false; updateLabel(); startCycle(); }
-      }
+      // Cambia a verde de inmediato y bloquea FORCE_TIME
+      if (dir==='NS'){ phase='NS_GREEN'; setNS('green'); setEW('red'); setBanner('Forzado: NS Verde'); showPassing('NS', FORCE_TIME); }
+      else { phase='EW_GREEN'; setEW('green'); setNS('red'); setBanner('Forzado: EW Verde'); showPassing('EW', FORCE_TIME); }
+      setInfo();
 
-      // ===== RECEPCIÓN DESDE aruco.html =====
-      // Tomamos order[0] (el "de arriba"):
-      // 1 -> ciclo A ; 200 -> ciclo B ; 100 -> peatón (10s)
-      function handleOrder(order){
-        if (!Array.isArray(order) || !order.length) return;
-        const top = order[0];
-        if (top === 1 && currentCycleKey!=="A"){ currentCycleKey="A"; startCycle(); }
-        else if (top === 200 && currentCycleKey!=="B"){ currentCycleKey="B"; startCycle(); }
-        else if (top === 100 && !isPedestrian){ startPedestrian(10); }
-      }
+      blockedUntil = now() + FORCE_TIME*1000;
+      // Espera fin del bloqueo
+      while (now()<blockedUntil && my===token){ await sleep(150); }
+      if (my!==token) return;
+      hidePassing();
 
-      Protobject.Core.onReceived((order) => { handleOrder(order); });
+      // Amarillo del lado que estuvo verde
+      await toYellow(dir); if (my!==token) return;
 
-      // Arranca ciclo A
-      startCycle();
-    </script>
+      // Retomar ciclo normal: alterna al otro
+      const next = (dir==='NS') ? 'EW' : 'NS';
+      cycleNormal(next);
+    }
 
-    <style>
-      #ProtobjectPlusButton { width: 80px !important; }
-      #ProtobjectPlusButton::after { content: " Connect"; }
-      body::before {
-        content: "";
-        position: absolute;
-        left: 60px; top: 90px;
-        width: 160px; height: 404px; /* 3*120 + 2*22 */
-        background: #222; border-radius: 22px; opacity: .18;
-      }
-    </style>
-  </body>
+    /* ====== Peatón ====== */
+    async function forcePedestrian(){
+      token++; const my=token;
+      hidePassing();
+      phase='PEDESTRIAN'; setNS('red'); setEW('red'); setBanner('Peatón: ambos en rojo 6s'); setInfo();
+      blockedUntil = now(); // no consideramos “pasando auto” durante peatón
+      await sleep(PED_TIME*1000);
+      if (my!==token) return;
+      // tras peatón, reanudar ciclo normal por NS
+      cycleNormal('NS');
+    }
+
+    /* ====== Recepción desde aruco.html ====== */
+    Protobject.Core.onReceived((order) => {
+      if (!Array.isArray(order) || !order.length) return;
+      // prioridad peatón
+      if (order.includes(100)) { forcePedestrian(); return; }
+      // fuerzas por 1 / 200
+      if (order.includes(1))   { forceGreen('NS'); return; }
+      if (order.includes(200)) { forceGreen('EW'); return; }
+    });
+  </script>
+</body>
 </html>
