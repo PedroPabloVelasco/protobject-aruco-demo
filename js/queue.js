@@ -1,0 +1,51 @@
+import { state, now } from './state.js';
+import { PERSIST_MS } from './constants.js';
+
+// Anti-resurrección de IDs recién servidos
+const servedBlock = new Map(); // id -> expireMs
+const SERVED_TTL = 2500;       // ms
+
+export function getSideArray(side){ return side==='EW' ? state.EW : state.NS; }
+export function getItemById(id){ return state.NS.find(v=>v.id===id) || state.EW.find(v=>v.id===id) || null; }
+
+// source: 'event' (persiste) | 'vision' (caduca si no se ve)
+export function upsertEntity(id, role, dir, source='vision'){
+  const t = now();
+  const exp = servedBlock.get(id);
+  if (exp && t < exp) return null;
+
+  const arr = getSideArray(dir);
+  const found = arr.find(x=>x.id===id);
+  if (found){
+    found.role=role; found.lastSeen=t; found.source=source;
+    return found;
+  }
+  const item = { id, role, dir, enqueuedAt:t, lastSeen:t, scheduledOutAt:null, source };
+  arr.push(item);
+  return item;
+}
+
+export function pruneStale(){
+  const t = now();
+  const prune = arr=>{
+    for (let i=arr.length-1;i>=0;i--){
+      const v = arr[i];
+      if (v.source==='vision' && (t - v.lastSeen > PERSIST_MS)){
+        arr.splice(i,1);
+      }
+    }
+  };
+  prune(state.NS); prune(state.EW);
+}
+
+export function removeOne(role, dir){
+  const arr = getSideArray(dir);
+  const i = arr.findIndex(v=>v.role===role);
+  if (i>=0) arr.splice(i,1);
+}
+
+export function clearAll(){ state.NS.length=0; state.EW.length=0; }
+
+export function markServed(id){
+  servedBlock.set(id, now()+SERVED_TTL);
+}

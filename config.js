@@ -1,16 +1,6 @@
-Protobject.setProduction(true)
-Protobject.initialize(
-  [
-    { 
-      name: "ArUco",
-      page: "aruco.html",   // Cámara + detección ArUco
-      debug: "local",
-    },
-    { 
-      name: "Lamp",
-      page: "index.html",   // Semáforo
-      main: true,
-      debug: "master",
-    }
-  ]
-);
+Protobject.setProduction(true);
+Protobject.initialize([
+  { name: "ArUco",  page: "aruco.html",  debug: "local" },
+  { name: "Lamp",   page: "index.html",  main: true,    debug: "master" },
+  { name: "Remote", page: "remote.html", debug: "local" }
+]);
