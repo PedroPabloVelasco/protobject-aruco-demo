@@ -24,6 +24,7 @@
   </div>
 
   <script src="https://app.protobject.com/framework/p.js"></script>
+  <script src="config.js"></script>
   <script>
     Protobject.Core.onReceived(()=>{});
 
@@ -53,11 +54,14 @@
       const entries = Array.from(store.entries())
         .filter(([_, rec]) => now - rec.ts <= PERSIST_MS)
         .map(([id, rec]) => ({ id, y: rec.y }));
-      // fuerza refresh ~3 veces por segundo aunque la 'y' no cambie
+      
+      // Fuerza refresh ~3 veces por segundo aunque la 'y' no cambie
       const tick = Math.floor(Date.now()/300);
       const sig = tick + '|' + entries.map(o => `${o.id}:${o.y.toFixed(2)}`).sort().join('|');
+
+      // Si la "firma" (lo que vemos) no ha cambiado, no enviar nada.
       if (sig === lastSig) return;
-      lastSig = sig;
+      lastSig = sig; // Actualiza la firma
 
       const det = {};
       for (const {id, y} of entries){
@@ -65,19 +69,21 @@
         if (!role) continue;
         det[`${DIR}-${id}`] = { role, dir: DIR, y };
       }
-      if (Object.keys(det).length === 0) return;
 
-      lastPayload = { det };
+      // Siempre actualizamos lastPayload, incluso si 'det' está vacío.
+      // Esto es clave para enviar el payload vacío cuando los marcadores desaparecen.
+      lastPayload = { det }; 
+      
       try {
-        Protobject.Core.send(lastPayload).to(PC_PAGE);
-        console.log('[Aruco EW] Sent det:', JSON.stringify(lastPayload));
+        // Y siempre enviamos el payload (vacío o no)
+        Protobject.Core.send(lastPayload).to(PC_PAGE); 
+        
+        if (Object.keys(det).length > 0) {
+          // Log solo si realmente detectamos algo
+          console.log(`[Aruco ${DIR}] Sent det:`, JSON.stringify(lastPayload));
+        }
       } catch {}
     }
-
-    setInterval(() => {
-      if (!lastPayload) return;
-      try { Protobject.Core.send(lastPayload).to(PC_PAGE); } catch {}
-    }, RETRY_MS);
 
     window.addEventListener('DOMContentLoaded', () => {
       Protobject.Aruco.start(30, 0);

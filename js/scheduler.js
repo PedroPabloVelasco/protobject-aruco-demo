@@ -25,6 +25,7 @@ export function beginGreen(side){
 
 export function scheduleOne(side, v){
   if (!ctx[side]) return; // solo si está en verde
+  if (v.scheduledOutAt) return; // Ya está agendado en este ciclo
   const base = PASS_BASE[v.role] ?? PASS_BASE.auto;
   const c = ctx[side];
   c.idx += 1;
@@ -46,7 +47,7 @@ function startPopLoop(side){
     while (arr.length && arr[0].scheduledOutAt && arr[0].scheduledOutAt <= t){
       const gone = arr.shift();
 
-      // *** NUEVO: tiempo de espera real de este vehículo ***
+      //tiempo de espera real de este vehículo
       const waitSec = (t - gone.enqueuedAt) / 1000;
       updateMaxWait(gone.role, waitSec);
 
@@ -60,12 +61,9 @@ function startPopLoop(side){
 
 // util para obtener el índice del último turno asignado en el lado (si está en verde)
 export function currentIndex(side){
-  // ctx está dentro de este módulo; lo exponemos de forma segura
-  // @ts-ignore
   return (typeof ctx !== 'undefined' && ctx[side]) ? ctx[side].idx : -1;
 }
 // util para obtener el anchor si está en verde
 export function currentAnchor(side){
-  // @ts-ignore
   return (typeof ctx !== 'undefined' && ctx[side]) ? ctx[side].anchor : null;
 }
