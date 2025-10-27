@@ -1,9 +1,9 @@
 import { state } from './state.js';
-import { GREEN_BASE, YELLOW_TIME, ALL_RED_TIME, TICK_DECISION_MS, MIN_GREEN, PASS_BASE, PASS_HEADWAY, ARUCO_REGISTER_MS } from './constants.js';
-import { upsertEntity, pruneStale, removeOne, clearAll, getSideArray } from './queue.js';
+import { GREEN_BASE, YELLOW_TIME, ALL_RED_TIME, TICK_DECISION_MS, MIN_GREEN, ARUCO_REGISTER_MS } from './constants.js';
+import { upsertEntity, removeOne, clearAll } from './queue.js';
 import { computeScores } from './scoring.js';
 import { decide } from './decision.js';
-import { beginGreen, endGreen, scheduleOne, currentIndex, currentAnchor } from './scheduler.js';
+import { beginGreen, endGreen, scheduleOne } from './scheduler.js';
 import { setLights, setBothRed, setBanner, setInfo, renderQueues, showPassing, hidePassing } from './ui.js';
 
 
@@ -30,52 +30,6 @@ function etaToGreen(side){
   return remainingGreen + YELLOW_TIME + ALL_RED_TIME;
 }
 
-// calcula, para cada tipo, el peor ETA (NS+EW) respetando la regla 4s + 2*i
-function estimateMaxWaitByType(){
-  const types = ['auto','bici','bus','ambulancia'];
-  const res = {};
-  for (const type of types){
-    let maxEta = 0;
-
-    for (const side of ['NS','EW']){
-      const arrSide = getSideArray(side);
-      const ofType = arrSide.filter(v=>v.role===type);
-      if (ofType.length===0) continue;
-
-      // último de ese tipo por orden de llegada en este lado
-      const ordered = arrSide
-        .filter(v=>v.role===type)
-        .sort((a,b)=>a.enqueuedAt - b.enqueuedAt);
-      const last = ordered[ordered.length-1];
-
-      // cuántos de ese mismo tipo van antes que él (en este lado)
-      const beforeSame = ordered.findIndex(v=>v.id===last.id);
-
-      const base = PASS_BASE[type] ?? PASS_BASE.auto;
-
-      if (state.phase === side+'_GREEN'){
-        // si ya hay programación, úsala; si no, estima desde el índice actual
-        const anchor = currentAnchor(side) ?? performance.now();
-        const startIdx = Math.max(currentIndex(side), -1);  // -1 => siguiente es i=0
-        const i = startIdx + 1 + beforeSame;
-        const eta = last.scheduledOutAt
-          ? (last.scheduledOutAt - performance.now())/1000
-          : ((anchor + (base + PASS_HEADWAY*i)*1000) - performance.now())/1000;
-        maxEta = Math.max(maxEta, Math.max(0, eta));
-      } else {
-        // lado rojo: ancla = primer instante de posible verde para ese lado
-        const anchorS = performance.now() + etaToGreen(side)*1000;
-        const i = beforeSame; // orden relativo en el primer verde
-        const eta = (anchorS + (base + PASS_HEADWAY*i)*1000 - performance.now())/1000;
-        maxEta = Math.max(maxEta, Math.max(0, eta));
-      }
-    }
-
-    res[type] = Math.ceil(maxEta);
-  }
-  return res;
-}
-
 // pinta el "Tiempo máximo esperado por tipo (NS+EW)" en el panel
 function renderWaitByType(){
   const el = document.getElementById('waitByType');
@@ -86,9 +40,7 @@ function renderWaitByType(){
     .map(t => `${icon(t)} ${t}: <b>${r[t]}s</b>`).join(' &nbsp; ');
 }
 
-
 // Recepción de payloads (eventos del móvil + ArUco)
-
 function handlePayload(payload){
   // a) Eventos del remoto (persisten hasta pasar/clear)
   if (payload && payload.evt){
@@ -222,7 +174,6 @@ async function green(side, base=GREEN_BASE){
 // Motor de decisión
 
 setInterval(()=>{
-  pruneStale();
   renderQueues();
 
   const now = performance.now();

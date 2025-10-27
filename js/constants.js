@@ -10,8 +10,6 @@ export const MAX_WAIT = 45;
 export const DELTA_EXTEND = 2;
 export const DELTA_SWITCH = 3;
 export const ARUCO_REGISTER_MS = 1000;
-
-export const PERSIST_MS = 2000;
 export const TICK_DECISION_MS = 500;
 
 // Regla de paso: base + 2*i
