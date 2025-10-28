@@ -1,10 +1,12 @@
 import { state, now } from './state.js';
+import { PERSIST_MS } from './constants.js';
 
 // Anti-resurrección de IDs recién servidos
 const servedBlock = new Map(); // id -> expireMs
 const SERVED_TTL = 2500;       // ms
 
 export function getSideArray(side){ return side==='EW' ? state.EW : state.NS; }
+export function getItemById(id){ return state.NS.find(v=>v.id===id) || state.EW.find(v=>v.id===id) || null; }
 
 // source: 'event' (persiste) | 'vision' (caduca si no se ve)
 export function upsertEntity(id, role, dir, source='vision'){
@@ -21,6 +23,19 @@ export function upsertEntity(id, role, dir, source='vision'){
   const item = { id, role, dir, enqueuedAt:t, lastSeen:t, scheduledOutAt:null, source };
   arr.push(item);
   return item;
+}
+
+export function pruneStale(){
+  const t = now();
+  const prune = arr=>{
+    for (let i=arr.length-1;i>=0;i--){
+      const v = arr[i];
+      if (v.source==='vision' && (t - v.lastSeen > PERSIST_MS)){
+        arr.splice(i,1);
+      }
+    }
+  };
+  prune(state.NS); prune(state.EW);
 }
 
 export function removeOne(role, dir){
