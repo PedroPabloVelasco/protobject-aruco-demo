@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Aruco — Detector</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Ubuntu,sans-serif;margin:0;background:#0f1115;color:#e5e7eb}
+    h1{margin:12px;text-align:center;font-size:clamp(18px,4.5vw,22px)}
+    .wrap{padding:12px}
+    #preview{width:100%;max-width:520px;aspect-ratio:16/9;margin:0 auto;border:1px solid #333;border-radius:12px;overflow:hidden}
+    .row{display:flex;gap:8px;justify-content:center;margin-top:10px;font-size:13px;color:#aab0be}
+    code{background:#1f2430;padding:2px 6px;border-radius:6px;border:1px solid #30364a}
+  </style>
+</head>
+<body>
+  <h1>Detección ArUco</h1>
+  <div class="wrap">
+    <div id="preview"></div>
+    <div class="row">
+      <div>IDs: <code>1=ambulancia</code> <code>100=bus</code> <code>200=auto</code> <code>300=bici</code></div>
+    </div>
+    <div class="row"><div>Enviando a <code>index.html</code> fuente <b>visión</b></div></div>
+  </div>
+
+  <script src="https://app.protobject.com/framework/p.js"></script>
+  <script src="config.js"></script>
+  <script>
+    Protobject.Core.onReceived(()=>{});
+
+    const PC_PAGE = "index.html";
+    const IDS = [0, 199, 200, 300, 1, 2, 100];
+    const MIN_SIZE = 0;
+    const DIR    = "BOTH";
+    const ALPHA_Y  = 0.35;
+    const PERSIST_MS = 500;
+    const SEND_EVERY_MS = 200;
+    const RETRY_MS = 250;
+
+    const store = new Map();  // id -> { y, ts }
+    let lastSig = "";
+    let lastPayload = null;
+
+    function getVehicleData(id) {
+        // IDs de NS
+        if (id === 0)   return { role: 'ambulancia', dir: 'NS' };
+        if (id === 199) return { role: 'bus',        dir: 'NS' };
+        if (id === 200) return { role: 'auto',       dir: 'NS' };
+
+        // IDs de EW
+        if (id === 1)   return { role: 'ambulancia', dir: 'EW' };
+        if (id === 2)   return { role: 'bus',        dir: 'EW' };
+        if (id === 100) return { role: 'auto',       dir: 'EW' };
+
+        // ID Compartido (si aplica, o puedes tener IDs separados)
+        if (id === 300) return { role: 'bici',       dir: 'NS' }; // O 'EW', o tener dos IDs
+
+        return null; // ID no reconocido
+    }
+
+    function buildAndMaybeSend(){
+      const now = Date.now();
+      const entries = Array.from(store.entries())
+        .filter(([_, rec]) => now - rec.ts <= PERSIST_MS)
+        .map(([id, rec]) => ({ id, y: rec.y }));
+      
+      // Fuerza refresh ~3 veces por segundo aunque la 'y' no cambie
+      const tick = Math.floor(Date.now()/300);
+      const sig = tick + '|' + entries.map(o => `${o.id}:${o.y.toFixed(2)}`).sort().join('|');
+
+      // Si la "firma" (lo que vemos) no ha cambiado, no enviar nada.
+      if (sig === lastSig) return;
+      lastSig = sig; // Actualiza la firma
+
+      const det = {};
+      for (const {id, y} of entries){
+        const data = getVehicleData(id); // <--- Llama a la nueva función
+        if (!data) continue;
+
+        const { role, dir } = data; // <--- Obtiene el rol Y la dirección
+
+        // Crea la clave dinámicamente (ej. "NS-200" o "EW-100")
+        det[`${dir}-${id}`] = { role, dir, y }; 
+      }
+
+      // Siempre actualizamos lastPayload, incluso si 'det' está vacío.
+      // Esto es clave para enviar el payload vacío cuando los marcadores desaparecen.
+      lastPayload = { det }; 
+      
+      try {
+        // Y siempre enviamos el payload (vacío o no)
+        Protobject.Core.send(lastPayload).to(PC_PAGE); 
+        
+        if (Object.keys(det).length > 0) {
+          // Log solo si realmente detectamos algo
+          console.log(`[Aruco ${DIR}] Sent det:`, JSON.stringify(lastPayload));
+        }
+      } catch {}
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      Protobject.Aruco.start(30, 0);
+      Protobject.Aruco.showPreview({
+        top:0, left:0, width:520, height:520*9/16,
+        element: document.getElementById('preview')
+      });
+
+      Protobject.Aruco.onData((data) => {
+        const now = Date.now();
+        IDS.forEach(id => {
+          const d = data[id];
+          if (!d || !d.position) return;
+          if (MIN_SIZE && d.size < MIN_SIZE) return;
+
+          const y = d.position.y;
+          const prev = store.get(id);
+          const ySmooth = prev ? (ALPHA_Y*y + (1-ALPHA_Y)*prev.y) : y;
+          store.set(id, { y: ySmooth, ts: now });
+
+          store.set(id, { y: ySmooth, ts: now });
+
+          const vehicleData = getVehicleData(id);
+          if (vehicleData) console.log(`[Aruco] Detected ID ${id} (role=${vehicleData.role}, dir=${vehicleData.dir}, y=${y.toFixed(2)})`); 
+        });
+
+        for (const [id, rec] of Array.from(store.entries())){
+          if (Date.now() - rec.ts > PERSIST_MS) store.delete(id);
+        }
+      });
+
+      setInterval(buildAndMaybeSend, SEND_EVERY_MS);
+    });
+  </script>
+</body>
+</html>
