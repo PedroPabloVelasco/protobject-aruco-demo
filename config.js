@@ -1,4 +1,4 @@
-Protobject.setProduction(true);
+Protobject.setProduction(false);
 Protobject.initialize([
   { name: "Aruco NS", page: "aruco_ns.html", debug: "local" },
   { name: "Aruco EW", page: "aruco_ew.html", debug: "local" },

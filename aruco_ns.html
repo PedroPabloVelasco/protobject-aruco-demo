@@ -30,7 +30,7 @@
 
     const PC_PAGE = "index.html";
     const DIR     = "NS";
-    const IDS     = [1,100,200,300];
+    const IDS     = [0,199,200,300];
     const MIN_SIZE = 0;
     const ALPHA_Y  = 0.35;
     const PERSIST_MS = 500;
@@ -42,8 +42,8 @@
     let lastPayload = null;
 
     function roleFromId(id){
-      if (id===1)   return 'ambulancia';
-      if (id===100) return 'bus';
+      if (id===0)   return 'ambulancia';
+      if (id===199) return 'bus';
       if (id===200) return 'auto';
       if (id===300) return 'bici';
       return null;
